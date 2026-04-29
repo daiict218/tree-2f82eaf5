@@ -1,0 +1,1253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Sprinklr Outbound — AI Tool Tree</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    font-family: -apple-system, "Segoe UI", "Inter", Roboto, sans-serif;
+    background: #fafbfc;
+    color: #1a2332;
+  }
+
+  .toolbar {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    z-index: 10;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 14px 18px;
+    box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08);
+    max-width: 380px;
+    transition: padding 0.18s;
+  }
+  .toolbar.collapsed { padding: 10px 14px; }
+  .toolbar .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .toolbar .chevron {
+    font-size: 11px;
+    color: #64748b;
+    transition: transform 0.18s;
+    flex-shrink: 0;
+  }
+  .toolbar.collapsed .chevron { transform: rotate(-90deg); }
+  .toolbar .panel-body {
+    overflow: hidden;
+    transition: max-height 0.22s, opacity 0.18s, margin-top 0.18s;
+    max-height: 800px;
+    opacity: 1;
+    margin-top: 4px;
+  }
+  .toolbar.collapsed .panel-body {
+    max-height: 0;
+    opacity: 0;
+    margin-top: 0;
+    pointer-events: none;
+  }
+  .toolbar h1 {
+    font-size: 16px;
+    font-weight: 700;
+    color: #0A2540;
+    letter-spacing: -0.01em;
+    margin: 0;
+  }
+  .toolbar .sub {
+    font-size: 11px;
+    color: #5a6a7e;
+    margin-bottom: 10px;
+    line-height: 1.45;
+  }
+  .toolbar .search-row {
+    display: flex; gap: 6px; margin-top: 10px;
+  }
+  .toolbar input[type="text"] {
+    flex: 1;
+    padding: 6px 10px;
+    font-size: 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    font-family: inherit;
+    outline: none;
+  }
+  .toolbar input[type="text"]:focus {
+    border-color: #1976d2;
+    box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.15);
+  }
+  .toolbar .search-meta {
+    font-size: 10px;
+    color: #94a3b8;
+    margin-top: 4px;
+    line-height: 1.4;
+  }
+  .toolbar .controls { display: flex; gap: 6px; margin-top: 10px; }
+  .node.search-hit rect {
+    stroke: #f59e0b !important;
+    stroke-width: 4px !important;
+    filter: drop-shadow(0 0 12px rgba(245, 158, 11, 0.5));
+  }
+  /* Soft halo on side-layer nodes (agent_loop / safety_authorization) so they read as crosscutting */
+  .node.governance rect {
+    filter: drop-shadow(0 0 14px rgba(185, 28, 28, 0.22));
+  }
+  .node.agent rect {
+    filter: drop-shadow(0 0 14px rgba(67, 56, 202, 0.22));
+  }
+  .persona-chip {
+    display: inline-block;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-right: 3px;
+    letter-spacing: 0.02em;
+    border: 1px solid;
+  }
+  .persona-CM     { background: #fef3c7; color: #78350f; border-color: #d97706; }
+  .persona-Sup    { background: #fce7f3; color: #831843; border-color: #be185d; }
+  .persona-ICMS   { background: #ddd6fe; color: #4c1d95; border-color: #7c3aed; }
+  .toolbar button {
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-size: 11px;
+    color: #1a2332;
+    cursor: pointer;
+    font-weight: 500;
+    font-family: inherit;
+  }
+  .toolbar button:hover { background: #e2e8f0; }
+  .toolbar .hint {
+    font-size: 10px;
+    color: #94a3b8;
+    margin-top: 8px;
+    line-height: 1.5;
+  }
+
+  .legend {
+    position: absolute;
+    bottom: 16px;
+    left: 16px;
+    z-index: 10;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 12px 16px;
+    font-size: 11px;
+    color: #475569;
+    box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08);
+    max-width: 320px;
+    transition: padding 0.18s;
+  }
+  .legend.collapsed { padding: 10px 14px; }
+  .legend .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .legend .chevron {
+    font-size: 11px;
+    color: #64748b;
+    transition: transform 0.18s;
+    flex-shrink: 0;
+  }
+  .legend.collapsed .chevron { transform: rotate(-90deg); }
+  .legend .panel-body {
+    overflow: hidden;
+    transition: max-height 0.22s, opacity 0.18s, margin-top 0.18s;
+    max-height: 800px;
+    opacity: 1;
+    margin-top: 6px;
+  }
+  .legend.collapsed .panel-body {
+    max-height: 0;
+    opacity: 0;
+    margin-top: 0;
+    pointer-events: none;
+  }
+  .legend h2 {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: #475569;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+  .legend-row { display: flex; align-items: center; gap: 10px; line-height: 1.6; margin-bottom: 2px; }
+  .swatch { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
+  .swatch.root { background: #0A2540; }
+  .swatch.main { background: #1976d2; }
+  .swatch.outbound { background: #0d9488; }
+  .swatch.shared { background: #7c3aed; }
+  .swatch.action { background: #f1f5f9; border: 1px solid #cbd5e1; }
+  .swatch.field { background: #fef3c7; border: 1px dashed #b45309; }
+  .swatch.placeholder { background: #ffffff; border: 1px dashed #94a3b8; }
+  .swatch.peer { background: #ea580c; }
+  .swatch.governance { background: #b91c1c; }
+
+  #tree {
+    width: 100vw;
+    height: 100vh;
+    cursor: grab;
+  }
+  #tree:active { cursor: grabbing; }
+  .node { cursor: move; }
+  .node.dragging rect {
+    stroke-width: 3px !important;
+    filter: drop-shadow(0 8px 24px rgba(15, 23, 42, 0.20));
+  }
+  .node.pinned rect {
+    stroke-dasharray: 0;
+  }
+  .node.pinned::after { content: ''; }
+  .pin-indicator {
+    pointer-events: none;
+  }
+
+  .link {
+    fill: none;
+    stroke: #94a3b8;
+    stroke-width: 1.5px;
+  }
+  .node rect {
+    stroke-width: 1.5px;
+    rx: 8px;
+    ry: 8px;
+  }
+  .node.field rect { stroke-dasharray: 4 3; }
+  .node.placeholder rect { stroke-dasharray: 6 4; opacity: 0.85; }
+</style>
+</head>
+<body>
+
+<div class="toolbar collapsed" id="toolbar">
+  <div class="panel-header" id="toolbar-header">
+    <h1>Sprinklr Outbound — AI Tool Tree</h1>
+    <span class="chevron">▼</span>
+  </div>
+  <div class="panel-body">
+    <div class="sub">Every AI tool, sub-tool, action, field, and likely-deeper-extension.<br>
+    Each tool node shows technical name + plain-English description + the 3 pillars.</div>
+    <div class="search-row">
+      <input id="search-input" type="text" placeholder="Search nodes (e.g., dialer, retry, business hours)…" autocomplete="off">
+      <button id="search-prev" title="Previous match">↑</button>
+      <button id="search-next" title="Next match">↓</button>
+    </div>
+    <div class="search-meta" id="search-meta">Type and press Enter · ↓ next · ↑ previous</div>
+    <div class="controls">
+      <button id="zoom-in">+ Zoom in</button>
+      <button id="zoom-out">− Zoom out</button>
+      <button id="zoom-reset">Reset</button>
+      <button id="zoom-fit">Fit all</button>
+      <button id="layout-reset" title="Clear all manual node positions">Reset layout</button>
+    </div>
+    <div class="hint">Drag to pan · Scroll to zoom · Tree extends beyond viewport</div>
+  </div>
+</div>
+
+<div class="legend collapsed" id="legend">
+  <div class="panel-header" id="legend-header">
+    <h2 style="margin:0;">Legend</h2>
+    <span class="chevron">▼</span>
+  </div>
+  <div class="panel-body">
+    <div class="legend-row"><div class="swatch root"></div><span><strong>Root</strong> · the top-level AI surface</span></div>
+    <div class="legend-row"><div class="swatch main"></div><span><strong>Main tool</strong> · 4 campaign-scoped tools</span></div>
+    <div class="legend-row"><div class="swatch outbound"></div><span><strong>Outbound-specific sub-tool</strong></span></div>
+    <div class="legend-row"><div class="swatch shared"></div><span><strong>Shared sub-tool</strong> · used by inbound + outbound</span></div>
+    <div class="legend-row"><div class="swatch action"></div><span><strong>Action</strong> · a method on a tool, not a tool itself</span></div>
+    <div class="legend-row"><div class="swatch field"></div><span><strong>Field</strong> · scalar config field, not a sub-tool</span></div>
+    <div class="legend-row"><div class="swatch placeholder"></div><span><strong>Placeholder</strong> · deeper sub-tools likely exist here</span></div>
+    <div class="legend-row"><div class="swatch peer"></div><span><strong>Peer top-level tool</strong> · separate scope</span></div>
+    <div class="legend-row"><div class="swatch governance"></div><span><strong>Governance / safety</strong> · gates every other tool</span></div>
+    <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #f1f5f9;">
+      <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.12em; color:#475569; font-weight:700; margin-bottom:6px;">Persona chips on tools</div>
+      <div style="line-height: 1.7;">
+        <span class="persona-chip persona-CM">CM</span><span style="font-size:11px;">Campaign Manager · runs day-to-day</span><br>
+        <span class="persona-chip persona-Sup">Sup</span><span style="font-size:11px;">Supervisor · monitors agents</span><br>
+        <span class="persona-chip persona-ICMS">ICMS</span><span style="font-size:11px;">IC / MS · implementation + onboarding</span>
+      </div>
+      <div style="font-size:10px; color:#94a3b8; margin-top:6px;">Agent persona is out-of-scope for this AI surface (uses agent desktop directly).</div>
+    </div>
+  </div>
+</div>
+
+<svg id="tree"></svg>
+
+<script>
+  // Helper: build a tool node with the 3 pillars
+  const tool = (name, desc, type, creation, explainability, recommendation, children) => ({
+    name, desc, type, creation, explainability, recommendation,
+    children: children || undefined
+  });
+  // Helper: attach persona chips to an existing tool node (mutates + returns)
+  const personas = (toolNode, personaList) => { toolNode.personas = personaList; return toolNode; };
+  // Apply persona chips to tools by name. CM = Campaign Manager, Sup = Supervisor, ICMS = Implementation Consultant / Managed Services
+  function applyPersonas(rootData, personaMap) {
+    function walk(node) {
+      if (!node) return;
+      if (node.name && personaMap[node.name]) {
+        node.personas = personaMap[node.name];
+      }
+      (node.children || []).forEach(walk);
+    }
+    walk(rootData);
+  }
+  const action = (name, desc) => ({ name, desc, type: "action" });
+  const field  = (name, desc) => ({ name, desc, type: "field" });
+  const ph     = (label) => ({ name: "(deeper sub-tools)", desc: label, type: "placeholder" });
+
+  const data = {
+    name: "Sprinklr Outbound CCaaS",
+    desc: "Top-level AI surface (root)",
+    type: "root",
+    children: [
+      tool(
+        "campaign_lifecycle",
+        "Set up and manage campaigns. Owns the campaign object — all reads (View / List) and writes (Create / Edit / Clone / Activate) live here.",
+        "main",
+        "Compose all sub-tools below; create from scratch or clone a similar campaign",
+        "Surface full campaign config, edit history, and every dependent consumer; list all campaigns in workspace",
+        "Cross-check sub-tool consistency, regulatory bounds, schema validity",
+        [
+          action("View Campaign", "Full campaign config + edit history (Confluence pageId 4391010355)"),
+          field("name & description", "Campaign identity"),
+          field("start / end dates", "Default end = +3 years from creation"),
+          field("attempt limits", "Max / Daily / Weekly + rolling-window restriction"),
+          field("number of channels", "Concurrent line capacity, bounded by voice_application"),
+          field("preferred_time_to_call + expiry", "Per-lead exact-time fields (Date Time, timezone-aware)"),
+          field("highlight_fields", "Which fields show in agent popup (Preview / Callback dialers only)"),
+          field("call_distribution_method", "Simultaneous Weighted / Round Robin with Priority / Priority Calling"),
+          field("primary_filters (Base Filter)", "Optional Include / Exclude conditions at campaign level"),
+          field("apply_dnc", "HDFC-style toggle — legacy, custom"),
+          field("custom_properties", "Free-form tags for reporting (a.k.a. Custom Fields, Campaign Fields)"),
+          field("post_call_workflow", "Reference to a journey_facilitator workflow"),
+          field("visibility / sharing", "Cross-cutting: workspaces + user / user_group + advanced filters"),
+          tool(
+            "business_hours",
+            "Set business hours when calls can be placed",
+            "shared",
+            "Pick existing record or create new from regulatory context",
+            "Narrate hours / timezone / holidays + dependent consumers",
+            "TRAI / Ofcom / FCC violation check; surface dependents before edit"
+          ),
+          tool(
+            "retry_strategy",
+            "Set retry rules for unsuccessful calls (legacy-aware)",
+            "outbound",
+            "Block legacy creation; propose Advanced Retry from past similar campaigns",
+            "Narrate Dialing Pattern + rules + actions; surface legacy_kind flag",
+            "Detect rule shadowing, missing dispositions, suggest legacy migration"
+          ),
+          tool(
+            "dialer_profile",
+            "Configure how the dialer makes calls (10 dialer types)",
+            "outbound",
+            "Pick dialer type and compose queue + caller_id + voice_app + speech_profile",
+            "Narrate mode, pacing, drop-rate, dependent campaigns",
+            "Mode-mismatch warnings, alert on Pause / Shutdown of dependent campaigns",
+            [
+              tool(
+                "queue",
+                "Group of agents that take calls",
+                "shared",
+                "Reuse from Unified Routing or create inline from dialer_profile",
+                "Narrate agent group + skills + dependent dialers",
+                "Stale-agent detection, queue-skill alignment check",
+                [ ph("Verified deeper sub-tools: queue creation/edit, Agents page (skill + voice properties assignment), Skills assignment, Routing rules, Queue & Agent Metrics monitoring") ]
+              ),
+              tool(
+                "caller_id_setting",
+                "Number the customer sees on their phone",
+                "shared",
+                "Pick from 6 types: Fixed / Time / Attribute / User / Profile / Campaign",
+                "Narrate type-appropriate config + dependent dialers",
+                "Compliance check, regulatory display rules"
+              ),
+              tool(
+                "voice_application",
+                "Telephony provider account (Twilio / Avaya / Amazon Connect / Ozontel)",
+                "shared",
+                "Mostly admin-provisioned; AI lookup-only",
+                "Narrate provider + DID pool + linked users",
+                "Capacity check, provider-health alert",
+                [ ph("Verified deeper sub-tools: voice_account (separate entity, manages DIDs + SIP), DID number management, SIP Domain config, BYOC config, Multi-Provider Voice Application") ]
+              ),
+              tool(
+                "speech_profile",
+                "Language for call transcription",
+                "shared",
+                "Pick language; reuse from inbound if available",
+                "Narrate language + transcription accuracy expectations",
+                "Language-match check against campaign region"
+              )
+            ]
+          ),
+          tool(
+            "pre_call_automation_rule",
+            "Apply rules before each call (skip / update / dispatch JF)",
+            "outbound",
+            "Read past similar campaigns; select existing or create new",
+            "Narrate rules in priority order + dependent campaigns",
+            "Schema validity, action-target editability, rule overlap detection"
+          ),
+          tool(
+            "customer_availability_rule",
+            "Per-customer availability windows (composes business_hours)",
+            "outbound",
+            "Detect cross-timezone leads; compose business_hours per region",
+            "Narrate rules + per-rule BH + fallback to agent-only BH",
+            "Coverage gaps, deleted-BH refs, zero-overlap warnings"
+          ),
+          tool(
+            "suppression_list",
+            "Do-not-call lists (cross-channel: voice / SMS / email)",
+            "outbound",
+            "Match channel-type to dialer mode; pick existing or create",
+            "List attached lists with channel-type, expiry, audit trail",
+            "Channel-type mismatch, expired-list, standard-list-missing checks"
+          ),
+          tool(
+            "acw",
+            "After-call wrap-up time and workflow",
+            "shared",
+            "Pick existing ACW or create new with channel-specific behavior",
+            "Narrate type, duration, referenced disposition plans, dependents",
+            "Disposition plan coverage cross-check with retry strategy",
+            [
+              tool(
+                "disposition_plan",
+                "What agents log after each call",
+                "shared",
+                "Compose Global Disposition Field Library; define dispositions",
+                "Narrate dispositions, sub-dispositions, fields, visibility",
+                "Coverage cross-check with Retry Strategy / business outcome rules",
+                [ ph("Verified: Global Disposition Field Library has its own management surface (Create / Edit / Delete / Convert Global ↔ Local / Translate). Confluence pageId 4623040565") ]
+              )
+            ]
+          ),
+          tool(
+            "skill",
+            "Required agent skills (Unified Routing)",
+            "shared",
+            "Reuse from Unified Routing; create new if absent",
+            "Narrate skill + agents holding it + dependent campaigns",
+            "Coverage gap (queue must contain agents with all required skills)"
+          ),
+          tool(
+            "user",
+            "Manage individual users",
+            "shared",
+            "Foundational; AI mostly looks up",
+            "Narrate user details, roles, group memberships, skills",
+            "Inactive-user check, role-coverage warnings",
+            [ ph("Likely (UNVERIFIED in Confluence yet): roles, permissions, custom properties may have their own sub-tools — needs targeted search before being treated as fact") ]
+          ),
+          tool(
+            "user_group",
+            "Manage groups of users (Static or Dynamic)",
+            "shared",
+            "Pick existing or create Static / Dynamic; for Dynamic, define rule",
+            "Narrate type, member list, rule (if Dynamic), dependent entities",
+            "Stale-group detection, dynamic-group drift to zero members"
+          ),
+          tool(
+            "segment",
+            "Define a customer group (Filter-Based or Data Connector–Driven)",
+            "outbound",
+            "Pick Type up-front (Filter-Based vs API-driven); type cannot change after creation",
+            "Narrate type-appropriate fields + dependent activations + JF triggers",
+            "Type-change block, schema validity, connector-health check",
+            [ ph("Likely (UNVERIFIED in Confluence yet): filter-condition builder, connector-management, audit history — needs targeted search before being treated as fact") ]
+          ),
+          tool(
+            "segment_activation",
+            "Attach a customer group to a campaign with overrides (composes segment)",
+            "outbound",
+            "Compose segment sub-tool; attach to campaign with priority / weight / sort / override",
+            "List activations + Status, Priority, Weight, Sort, Override",
+            "Priority uniqueness, override-without-target, sort-key validity"
+          ),
+          tool(
+            "journey_facilitator",
+            "Send omnichannel follow-ups (SMS / WhatsApp / Email / In-app). Referenced by campaign via Post Call Workflow, Retry Strategy → Trigger Workflow, and Pre-Call Automation actions.",
+            "peer",
+            "Specced separately in companion JF document; campaign_lifecycle only stores the workflow reference",
+            "Look up referenced JF workflow + narrate paths in plain English; drill into JF tool for journey internals",
+            "Verify referenced JF workflow is active; check disposition coverage matches campaign",
+            [ ph("21+ JF entity groups: triggers, channels, nodes, audience, HSM templates, etc. — see companion JF document") ]
+          )
+        ]
+      ),
+      {
+        name: "lead_management",
+        desc: "Run a live campaign day-to-day. The 'Manage Leads' umbrella supersedes the older Manage Segment → Rechurn approach (Confluence pageIds 6097567948 + 6032588818). Multi-campaign selection, percentage-based controls, optional scheduling, audit trails. Gated by DP `BOOST_RECORDS_ENABLED`. Reads the same Records Overview Dashboard data as inspection.campaign_metrics.",
+        type: "main",
+        creation: "Supervisor selects campaign(s) + filter (Derived Attributes / Profile / Audience Lead, AND/OR operators) + action + optional Start Date, then Save",
+        explainability: "Surface per-campaign lead state: Open / Retry Scheduled / On Hold / Closed counts; latest Telephony Outcome distribution; Disposition breakdown; Attempt Distribution. Show audit trail of every past action with timestamp, user, and affected record count.",
+        recommendation: "Based on dashboard patterns: high On-Hold % → check ACW completion; many Closed leads with No-Answer outcome → propose Reopen for off-peak retry; high Total-Attempts segment → propose Configure Attempt Rules cap; absent recent Rechurns despite eligible leads → propose Schedule Rechurn",
+        children: [
+          action("Boost Records", "Reprioritize filtered leads for immediate dialing (Estimated Reach + Rechurn % + optional Start Date)"),
+          action("Schedule Rechurn", "Re-call filtered leads (Exceed-Limit toggle, Estimated Reach, Rechurn % 0-100, optional Start Date)"),
+          action("Close Leads in Bulk", "Stop further dialing on filtered leads (DNC, opted-out, wrong-number)"),
+          action("Reopen Closed Leads", "Move closed leads back to dialable state for re-engagement"),
+          action("Configure Attempt Rules", "Adjust Max + Daily attempts on filtered leads (temp override of campaign limits)"),
+          action("View Audit Trail", "Per-segment log: action / user / timestamp / count / file URLs"),
+          action("Records Overview Dashboard", "4 read-only widgets (Status / Telephony / Disposition / Attempts) — same data as inspection.campaign_metrics")
+        ]
+      },
+      {
+        name: "inspection",
+        desc: "See campaign performance (read-only). Composes 3 monitoring sub-tools per Confluence pageId 4391010394. View configuration (Date Range, 850+ Manage Columns, Sort, Aggregate) is filter UI inside each sub-tool, not a tool itself. Cross-tool flow: list campaigns here with filters → drill into one → see live metrics → if changes needed, redirects to campaign_lifecycle for edits.",
+        type: "main",
+        explainability: "Surface live metrics with 5-second refresh; narrate trends across all 3 monitoring layers",
+        recommendation: "Detect anomalies across campaign, agent, and segment layers and surface them to supervisors",
+        children: [
+          action("List Campaigns (with filters)", "Browse / filter all campaigns in the workspace by Date Range / Status / Owner / Workspace / etc., then drill in"),
+          {
+            name: "campaign_metrics",
+            desc: "Surface campaign-level performance (Campaign Summary widget + record counts)",
+            type: "outbound",
+            explainability: "Narrate Dialed Calls / Connected / Not Connected / Abandoned / AHT / Connectivity % / In-Flight Calls; Live / Ingested / Open / Closed Records. Filterable by Date Range and 850+ data points (Manage Columns).",
+            recommendation: "Detect anomalies: high abandon rate, low connectivity, sudden drop in dial volume; surface against historical baseline",
+            children: [
+              action("Campaign Summary widget", "Dialed / Connected / Not Connected / Abandoned"),
+              action("Records counts", "Live / Ingested / Open / Closed records (per Confluence metrics table)"),
+              action("Metrics calculations", "Not Connected = #1 - #2 · Connectivity % = #2 / #1 · Abandoned % · In-Flight = Picked + Dialing + Live")
+            ]
+          },
+          {
+            name: "agent_metrics",
+            desc: "Surface agent-level performance read-only (Agent Status & State + Agent Performance Table). Live-call interventions and admin actions live in supervisor_actions.",
+            type: "outbound",
+            explainability: "Narrate per-agent current status (available / busy / idle), state (logged in / working / idle), 24h activity, AHT, total calls handled",
+            recommendation: "Flag agents stuck in non-productive states, capacity gaps, low-performance outliers; recommend coaching candidates",
+            children: [
+              action("Agent Status & State view", "Snapshot of who is available / busy / on-call / idle"),
+              action("Agent Performance Table", "Per-agent metrics over filtered date range")
+            ]
+          },
+          {
+            name: "activated_segments_view",
+            desc: "Surface which segments are attached to a campaign and their per-segment metrics",
+            type: "outbound",
+            explainability: "Narrate per-segment lead counts and progress; show which segment is highest-priority, which has overrides set",
+            recommendation: "Detect zero-volume segments (config likely broken), segment exhaustion (no open records left), priority misalignment with Call Distribution Method",
+            children: [
+              action("Per-segment Live Records", "Total records currently in the segment"),
+              action("Per-segment Ingested Records", "New records ingested in the filtered date range"),
+              action("Per-segment Open Records", "Not-called OR retry-scheduled OR callback-pending"),
+              action("Per-segment Closed Records", "All other records in the date range with no calls scheduled")
+            ]
+          }
+        ]
+      },
+      {
+        name: "supervisor_actions",
+        desc: "Supervisor-side actions on agents and live calls. Triggered from agent_metrics view in inspection but separate because they WRITE to agent state and live calls (not read-only).",
+        type: "main",
+        creation: "Supervisor identifies the agent / live call to act on (typically from agent_metrics view in inspection)",
+        explainability: "Narrate which supervisor took which action on which agent at what time (audit trail)",
+        recommendation: "Flag excessive intervention (e.g., supervisor barging in too often) or under-intervention (no whispers logged for new agents)",
+        children: [
+          action("Logout agent", "Force-logout an agent from the system (Options menu)"),
+          action("Edit / Add Skills", "Adjust agent skills + proficiency levels (cross-ref to skill sub-tool)"),
+          action("Export Agent Activity Report", "Download Excel / CSV with case-numbered agent activities for a date range"),
+          action("Listen", "Silently listen in on a live call (agent and customer unaware)"),
+          action("Whisper", "Speak privately to the agent during a live call (only agent hears)"),
+          action("Barge In", "Join the ongoing call to provide direct assistance")
+        ]
+      }
+    ]
+  };
+
+  // Governance — single adjacent node next to ROOT. The 7 internal sub-tools (role_resolver, permission_check, visibility_filter, confirmation_gate, audit_log, rollback_handler, hard_refusal_patterns) live in the companion entity tree document, Section 7, with full 3-pillar treatment per sub-tool.
+  const governanceData = tool(
+    "safety_authorization",
+    "GOVERNANCE LAYER — gates every main tool's writes (and many reads). Built on Sprinklr's existing roles + permissions + sharing machinery. 3-tier role precedence: Workspace Roles > Global Roles with Local Scope > Global Roles with Global Scope. Internal sub-tools (role_resolver, permission_check, visibility_filter, confirmation_gate, audit_log, rollback_handler, hard_refusal_patterns) specced in companion entity tree document, Section 7.",
+    "governance",
+    "Not a creation surface. Configured once at platform admin level (Workspace Roles + Global Roles + role-to-user / role-to-user_group mappings).",
+    "For any tool call, narrate which permissions / roles / sharing rules permitted or denied the call, citing the user, role, and PermissionBasedEntity",
+    "Flag privilege escalation patterns, stale permissions, role sprawl, and PII / regulatory boundary violations before they reach a write action"
+  );
+
+  // Agent loop — single adjacent node on the LEFT of ROOT. Sub-components (planner, executor, observer, memory, reflector) specced in companion entity tree document, Section 8. Bulleted format on this node only.
+  const agentLoopData = tool(
+    "agent_loop",
+    "ORCHESTRATION LAYER — Goal → Plan → Tool calls → Observe → Re-plan → Done. Sits above the tool surface; takes a user goal, decomposes into a tool-call sequence, executes via the tools below, observes results, decides whether to continue / re-plan / finish. Sub-components (planner, executor, observer, memory, reflector) specced in companion entity tree document, Section 8. Optional workflow library for repeated patterns (e.g., BFSI Renewal Setup, New Customer Onboarding) — see Section 10.",
+    "agent",
+    ["Receive user goal in natural language", "Decompose into a structured plan (planner)", "Invoke tools with retry / fallback (executor)", "Loop until done or user intervention"],
+    ["Current plan + which tool was called + why", "Observation per step + next-step decision (observer)", "Audit-grade transparency for every loop iteration", "Resume state from memory across sessions"],
+    ["Stuck loops (same tool + same args repeated)", "Tool-budget overruns", "Low-confidence plans → ask the user", "Reflector mines completed loops for planner improvements"]
+  );
+
+  const colors = {
+    root:        { fill: "#0A2540", stroke: "#0A2540", textName: "#ffffff",  textDesc: "#94c4f5",  textPillar: "#cbd5e1" },
+    main:        { fill: "#dbeafe", stroke: "#1976d2", textName: "#0A2540",  textDesc: "#1976d2",  textPillar: "#475569" },
+    outbound:    { fill: "#ccfbf1", stroke: "#0d9488", textName: "#134e4a",  textDesc: "#0d9488",  textPillar: "#475569" },
+    shared:      { fill: "#ede9fe", stroke: "#7c3aed", textName: "#4c1d95",  textDesc: "#7c3aed",  textPillar: "#475569" },
+    action:      { fill: "#f8fafc", stroke: "#cbd5e1", textName: "#475569",  textDesc: "#64748b",  textPillar: "" },
+    field:       { fill: "#fef3c7", stroke: "#b45309", textName: "#78350f",  textDesc: "#92400e",  textPillar: "" },
+    placeholder: { fill: "#ffffff", stroke: "#94a3b8", textName: "#64748b",  textDesc: "#94a3b8",  textPillar: "" },
+    peer:        { fill: "#fff7ed", stroke: "#ea580c", textName: "#7c2d12",  textDesc: "#c2410c",  textPillar: "#9a3412" },
+    governance:  { fill: "#fee2e2", stroke: "#b91c1c", textName: "#7f1d1d",  textDesc: "#b91c1c",  textPillar: "#7f1d1d" },
+    agent:       { fill: "#e0e7ff", stroke: "#4338ca", textName: "#312e81",  textDesc: "#4338ca",  textPillar: "#312e81" }
+  };
+
+  const NODE_W = 340;
+  const NODE_H_TOOL = 168;
+  const NODE_H_SHORT = 70;
+  const SIBLING_GAP = 30;
+  const LEVEL_GAP = 130;
+
+  function nodeHeight(d) {
+    const t = d.data.type;
+    if (t === "action" || t === "field" || t === "placeholder" || t === "root") return NODE_H_SHORT;
+    if (t === "agent") return 420; // agent_loop: persona chips + long-form description + bulleted pillars
+    return NODE_H_TOOL;
+  }
+
+  const svg = d3.select("#tree");
+  const g = svg.append("g");
+
+  // Persona mapping (CM = Campaign Manager, Sup = Supervisor, ICMS = Implementation Consultant / Managed Services)
+  // Agent persona is intentionally out-of-scope for this AI tool surface (agents interact via the agent desktop, not the AI directly).
+  const personaMap = {
+    "campaign_lifecycle":         ["CM", "ICMS"],
+    "lead_management":            ["CM", "Sup", "ICMS"],
+    "inspection":                 ["CM", "Sup", "ICMS"],
+    "supervisor_actions":         ["Sup"],
+    "campaign_metrics":           ["CM", "Sup", "ICMS"],
+    "agent_metrics":              ["Sup"],
+    "activated_segments_view":    ["CM", "ICMS"],
+    "business_hours":             ["CM", "ICMS"],
+    "retry_strategy":             ["CM", "ICMS"],
+    "dialer_profile":             ["CM", "ICMS"],
+    "queue":                      ["CM", "ICMS"],
+    "caller_id_setting":          ["ICMS"],
+    "voice_application":          ["ICMS"],
+    "speech_profile":             ["ICMS"],
+    "pre_call_automation_rule":   ["CM", "ICMS"],
+    "customer_availability_rule": ["CM", "ICMS"],
+    "suppression_list":           ["CM", "ICMS"],
+    "acw":                        ["CM", "ICMS"],
+    "disposition_plan":           ["CM", "ICMS"],
+    "skill":                      ["ICMS"],
+    "user":                       ["ICMS"],
+    "user_group":                 ["ICMS"],
+    "segment":                    ["CM", "ICMS"],
+    "segment_activation":         ["CM"],
+    "journey_facilitator":        ["CM", "ICMS"]
+  };
+  applyPersonas(data, personaMap);
+  applyPersonas(governanceData, { "safety_authorization": ["ICMS"] });
+  applyPersonas(agentLoopData, { "agent_loop": ["CM", "Sup", "ICMS"] });
+
+  const root = d3.hierarchy(data);
+
+  // tree layout uses fixed cell size (max of tool height); each node centred in cell
+  const treeLayout = d3.tree()
+    .nodeSize([NODE_W + SIBLING_GAP, NODE_H_TOOL + LEVEL_GAP])
+    .separation((a, b) => a.parent === b.parent ? 1 : 1.4);
+  treeLayout(root);
+
+  // Centre horizontally
+  let xMin = Infinity, xMax = -Infinity;
+  root.each(d => {
+    if (d.x < xMin) xMin = d.x;
+    if (d.x > xMax) xMax = d.x;
+  });
+  const xShift = -(xMin + xMax) / 2;
+
+  // Links — connect parent's bottom-centre to child's top-centre
+  g.selectAll(".link")
+    .data(root.links())
+    .join("path")
+    .attr("class", "link")
+    .attr("d", d => {
+      const sx = d.source.x + xShift;
+      const sy = d.source.y + nodeHeight(d.source);
+      const tx = d.target.x + xShift;
+      const ty = d.target.y;
+      const my = (sy + ty) / 2;
+      return `M${sx},${sy} C${sx},${my} ${tx},${my} ${tx},${ty}`;
+    });
+
+  // Nodes
+  const node = g.selectAll(".node")
+    .data(root.descendants())
+    .join("g")
+    .attr("class", d => `node ${d.data.type}`)
+    .attr("transform", d => `translate(${d.x + xShift - NODE_W / 2}, ${d.y})`);
+
+  node.append("rect")
+    .attr("width", NODE_W)
+    .attr("height", d => nodeHeight(d))
+    .attr("fill", d => colors[d.data.type].fill)
+    .attr("stroke", d => colors[d.data.type].stroke)
+    .attr("stroke-width", d => d.data.type === "root" ? 2.5 : 1.5);
+
+  // foreignObject for HTML content
+  const fo = node.append("foreignObject")
+    .attr("width", NODE_W - 16)
+    .attr("height", d => nodeHeight(d) - 12)
+    .attr("x", 8)
+    .attr("y", 6);
+
+  fo.append("xhtml:div")
+    .style("font-family", "inherit")
+    .style("display", "flex")
+    .style("flex-direction", "column")
+    .style("justify-content", d => (d.data.type === "action" || d.data.type === "field" || d.data.type === "placeholder" || d.data.type === "root") ? "center" : "flex-start")
+    .style("height", "100%")
+    .style("padding", "4px 6px")
+    .html(d => {
+      const t = d.data.type;
+      const c = colors[t];
+      const isAction = t === "action";
+      const isField = t === "field";
+      const isPlaceholder = t === "placeholder";
+      const isRoot = t === "root";
+      const isShortNode = isAction || isField || isPlaceholder || isRoot;
+
+      const nameStyle = isAction
+        ? `font-size:13px; font-weight:600; color:${c.textName}; font-style:italic; text-align:center;`
+        : isField
+          ? `font-family:'SF Mono', Menlo, Consolas, monospace; font-size:11.5px; font-weight:600; color:${c.textName}; text-align:center;`
+          : isPlaceholder
+            ? `font-size:11px; font-weight:600; color:${c.textName}; font-style:italic; text-align:center;`
+            : isRoot
+              ? `font-size:15px; font-weight:700; color:${c.textName}; letter-spacing:-0.01em; text-align:center;`
+              : `font-family:'SF Mono', Menlo, Consolas, monospace; font-size:13px; font-weight:700; color:${c.textName}; margin-bottom:3px;`;
+
+      const descStyle = `font-size:10.5px; font-weight:500; color:${c.textDesc}; line-height:1.35; text-align:${isShortNode ? 'center' : 'left'}; ${isShortNode ? '' : 'margin-bottom:6px;'}`;
+
+      let html = `<div style="${nameStyle}">${d.data.name}</div>`;
+      if (d.data.personas && d.data.personas.length) {
+        const chipMap = { "CM": "Campaign Manager", "Sup": "Supervisor", "ICMS": "IC / MS" };
+        html += `<div style="margin:2px 0 4px 0;">` + d.data.personas.map(p => `<span class="persona-chip persona-${p}" title="${chipMap[p] || p}">${p}</span>`).join("") + `</div>`;
+      }
+      html += `<div style="${descStyle}">${d.data.desc}</div>`;
+
+      // Pillar block — each pillar is either a string (one liner) or an array (bullet list)
+      function renderPillar(label, value, c) {
+        if (!value) return "";
+        if (Array.isArray(value)) {
+          const items = value.map(v => `<li style="margin:1px 0;">${v}</li>`).join("");
+          return `<div style="margin-bottom:3px;"><strong style="color:${c.textName};">${label}</strong><ul style="margin:1px 0 0 12px; padding:0; list-style:disc; color:${c.textPillar};">${items}</ul></div>`;
+        }
+        return `<div style="margin-bottom:2px;"><strong style="color:${c.textName};">${label}</strong> ${value}</div>`;
+      }
+      if (!isShortNode && (d.data.creation || d.data.explainability || d.data.recommendation)) {
+        const pillarStyle = `font-size:9.5px; line-height:1.35; color:${c.textPillar}; text-align:left; padding-top:5px; border-top:1px solid ${c.stroke}25;`;
+        html += `<div style="${pillarStyle}">`;
+        html += renderPillar("Creation:", d.data.creation, c);
+        html += renderPillar("Explainability:", d.data.explainability, c);
+        html += renderPillar("Recommendation:", d.data.recommendation, c);
+        html += `</div>`;
+      }
+
+      return html;
+    });
+
+  // ── GOVERNANCE — single node sideways to ROOT (right side), no internal sub-tools (those live in the companion document). Connected to ROOT via dotted "gates" edge. ──
+  const govRoot = d3.hierarchy(governanceData);
+  const SIDE_OFFSET_FROM_ROOT = 600; // wide breathing room — clear dotted line + label space
+
+  const rootMainX = root.x + xShift;
+  govRoot.x_abs = rootMainX + NODE_W + SIDE_OFFSET_FROM_ROOT + NODE_W / 2;
+  govRoot.y_abs = root.y; // same y as ROOT — sideways alignment
+
+  // ── AGENT LOOP — single node sideways to ROOT (left side), mirror of governance. ──
+  const agentRoot = d3.hierarchy(agentLoopData);
+  agentRoot.x_abs = rootMainX - SIDE_OFFSET_FROM_ROOT - NODE_W / 2;
+  agentRoot.y_abs = root.y; // same y as ROOT — sideways alignment
+
+  // Governance internal links — fan UP from safety_authorization (top center) to each sub-tool (bottom center)
+  g.selectAll(".gov-link")
+    .data(govRoot.links())
+    .join("path")
+    .attr("class", "gov-link link")
+    .attr("d", d => {
+      const sx = d.source.x_abs;                        // safety_authorization horizontal center
+      const sy = d.source.y_abs;                        // safety_authorization TOP edge
+      const tx = d.target.x_abs;                        // sub-tool horizontal center
+      const ty = d.target.y_abs + nodeHeight(d.target); // sub-tool BOTTOM edge
+      const my = (sy + ty) / 2;
+      return `M${sx},${sy} C${sx},${my} ${tx},${my} ${tx},${ty}`;
+    });
+
+  // Governance + agent_loop nodes (both rendered together as side-layer nodes)
+  const sideLayerNodes = [...govRoot.descendants(), ...agentRoot.descendants()];
+  const govNode = g.selectAll(".gov-node")
+    .data(sideLayerNodes)
+    .join("g")
+    .attr("class", d => `node gov-node ${d.data.type}`)
+    .attr("transform", d => `translate(${d.x_abs - NODE_W / 2}, ${d.y_abs})`);
+
+  govNode.append("rect")
+    .attr("width", NODE_W)
+    .attr("height", d => nodeHeight(d))
+    .attr("fill", d => colors[d.data.type].fill)
+    .attr("stroke", d => colors[d.data.type].stroke)
+    .attr("stroke-width", d => d.data.type === "root" ? 2.5 : 1.5);
+
+  const govFo = govNode.append("foreignObject")
+    .attr("width", NODE_W - 16)
+    .attr("height", d => nodeHeight(d) - 12)
+    .attr("x", 8)
+    .attr("y", 6);
+
+  govFo.append("xhtml:div")
+    .style("font-family", "inherit")
+    .style("display", "flex")
+    .style("flex-direction", "column")
+    .style("justify-content", d => (d.data.type === "action" || d.data.type === "field" || d.data.type === "placeholder" || d.data.type === "root") ? "center" : "flex-start")
+    .style("height", "100%")
+    .style("padding", "4px 6px")
+    .html(d => {
+      const t = d.data.type;
+      const c = colors[t];
+      const isAction = t === "action";
+      const isField = t === "field";
+      const isPlaceholder = t === "placeholder";
+      const isRoot = t === "root";
+      const isShortNode = isAction || isField || isPlaceholder || isRoot;
+      const nameStyle = isAction
+        ? `font-size:13px; font-weight:600; color:${c.textName}; font-style:italic; text-align:center;`
+        : isField
+          ? `font-family:'SF Mono', Menlo, Consolas, monospace; font-size:11.5px; font-weight:600; color:${c.textName}; text-align:center;`
+          : isPlaceholder
+            ? `font-size:11px; font-weight:600; color:${c.textName}; font-style:italic; text-align:center;`
+            : isRoot
+              ? `font-size:15px; font-weight:700; color:${c.textName}; letter-spacing:-0.01em; text-align:center;`
+              : `font-family:'SF Mono', Menlo, Consolas, monospace; font-size:13px; font-weight:700; color:${c.textName}; margin-bottom:3px;`;
+      const descStyle = `font-size:10.5px; font-weight:500; color:${c.textDesc}; line-height:1.35; text-align:${isShortNode ? 'center' : 'left'}; ${isShortNode ? '' : 'margin-bottom:6px;'}`;
+      let html = `<div style="${nameStyle}">${d.data.name}</div>`;
+      if (d.data.personas && d.data.personas.length) {
+        const chipMap = { "CM": "Campaign Manager", "Sup": "Supervisor", "ICMS": "IC / MS" };
+        html += `<div style="margin:2px 0 4px 0;">` + d.data.personas.map(p => `<span class="persona-chip persona-${p}" title="${chipMap[p] || p}">${p}</span>`).join("") + `</div>`;
+      }
+      html += `<div style="${descStyle}">${d.data.desc}</div>`;
+      function renderPillar(label, value, c) {
+        if (!value) return "";
+        if (Array.isArray(value)) {
+          const items = value.map(v => `<li style="margin:1px 0;">${v}</li>`).join("");
+          return `<div style="margin-bottom:3px;"><strong style="color:${c.textName};">${label}</strong><ul style="margin:1px 0 0 12px; padding:0; list-style:disc; color:${c.textPillar};">${items}</ul></div>`;
+        }
+        return `<div style="margin-bottom:2px;"><strong style="color:${c.textName};">${label}</strong> ${value}</div>`;
+      }
+      if (!isShortNode && (d.data.creation || d.data.explainability || d.data.recommendation)) {
+        const pillarStyle = `font-size:9.5px; line-height:1.35; color:${c.textPillar}; text-align:left; padding-top:5px; border-top:1px solid ${c.stroke}25;`;
+        html += `<div style="${pillarStyle}">`;
+        html += renderPillar("Creation:", d.data.creation, c);
+        html += renderPillar("Explainability:", d.data.explainability, c);
+        html += renderPillar("Recommendation:", d.data.recommendation, c);
+        html += `</div>`;
+      }
+      return html;
+    });
+
+  // ── TWO dotted crosscutting edges: ROOT ↔ safety_authorization (right) and ROOT ↔ agent_loop (left). Both straight horizontal, center-to-center, perfectly parallel to x-axis. ──
+  govRoot.y_abs = root.y;
+  agentRoot.y_abs = root.y;
+  const sharedY = root.y + nodeHeight(root) / 2;
+
+  // RIGHT edge: ROOT → safety_authorization (gates)
+  const govLineSx = root.x + xShift + NODE_W / 2;
+  const govLineTx = govRoot.x_abs - NODE_W / 2;
+  g.append("line")
+    .attr("class", "gates-edge")
+    .attr("stroke", "#b91c1c")
+    .attr("stroke-width", 2)
+    .attr("stroke-dasharray", "10 7")
+    .attr("opacity", 0.75)
+    .attr("x1", govLineSx).attr("y1", sharedY)
+    .attr("x2", govLineTx).attr("y2", sharedY);
+  // Label: centered over the line midpoint, well clear of both boxes (with the 600px gap there's plenty of room)
+  g.append("text")
+    .attr("class", "gates-label")
+    .attr("fill", "#b91c1c")
+    .attr("font-size", "13px").attr("font-style", "italic").attr("font-weight", "700")
+    .attr("opacity", 0.92).attr("text-anchor", "middle")
+    .attr("x", (govLineSx + govLineTx) / 2).attr("y", sharedY - 14)
+    .text("gates every main tool below");
+
+  // LEFT edge: agent_loop → ROOT (orchestrates)
+  const agentLineSx = agentRoot.x_abs + NODE_W / 2;
+  const agentLineTx = root.x + xShift - NODE_W / 2;
+  g.append("line")
+    .attr("class", "orchestrates-edge")
+    .attr("stroke", "#4338ca")
+    .attr("stroke-width", 2)
+    .attr("stroke-dasharray", "10 7")
+    .attr("opacity", 0.75)
+    .attr("x1", agentLineSx).attr("y1", sharedY)
+    .attr("x2", agentLineTx).attr("y2", sharedY);
+  g.append("text")
+    .attr("class", "orchestrates-label")
+    .attr("fill", "#4338ca")
+    .attr("font-size", "13px").attr("font-style", "italic").attr("font-weight", "700")
+    .attr("opacity", 0.92).attr("text-anchor", "middle")
+    .attr("x", (agentLineSx + agentLineTx) / 2).attr("y", sharedY - 14)
+    .text("orchestrates every main tool below");
+
+  // Pan + zoom
+  const zoomBehavior = d3.zoom()
+    .scaleExtent([0.05, 3])
+    .on("zoom", (event) => g.attr("transform", event.transform));
+  svg.call(zoomBehavior);
+
+  function fitAll() {
+    const bounds = g.node().getBBox();
+    const padding = 80;
+    const scale = Math.min(
+      (window.innerWidth - padding * 2) / bounds.width,
+      (window.innerHeight - padding * 2) / bounds.height,
+      1
+    );
+    const tx = window.innerWidth / 2 - (bounds.x + bounds.width / 2) * scale;
+    const ty = padding - bounds.y * scale;
+    svg.transition().duration(500).call(
+      zoomBehavior.transform,
+      d3.zoomIdentity.translate(tx, ty).scale(scale)
+    );
+  }
+
+  d3.select("#zoom-in").on("click", () => svg.transition().duration(250).call(zoomBehavior.scaleBy, 1.3));
+  d3.select("#zoom-out").on("click", () => svg.transition().duration(250).call(zoomBehavior.scaleBy, 1 / 1.3));
+  d3.select("#zoom-reset").on("click", () => svg.transition().duration(400).call(zoomBehavior.transform, d3.zoomIdentity.translate(window.innerWidth / 2, 80).scale(1)));
+  d3.select("#zoom-fit").on("click", fitAll);
+
+  // ── DRAG: subtree drag with localStorage persistence ──
+  // Each node tracks its current absolute position via .currentX / .currentY.
+  // Pinned positions live in localStorage keyed by a stable node path.
+  // Edges always reshape from current positions; auto-layout positions are the fallback for unpinned nodes.
+
+  const STORAGE_KEY = "outbound-mcp-tree-layout-v1";
+
+  // Build a stable identifier for each node (path of names from root)
+  function nodeId(d) {
+    if (d._id) return d._id;
+    const parts = [];
+    let cur = d;
+    while (cur) { parts.unshift(cur.data.name); cur = cur.parent; }
+    d._id = parts.join("›");
+    return d._id;
+  }
+
+  // Initialize currentX / currentY from auto-layout positions
+  function initPositions() {
+    root.descendants().forEach(d => {
+      d.currentX = d.x + xShift;
+      d.currentY = d.y;
+    });
+    govRoot.descendants().forEach(d => {
+      d.currentX = d.x_abs;
+      d.currentY = d.y_abs;
+    });
+    agentRoot.descendants().forEach(d => {
+      d.currentX = d.x_abs;
+      d.currentY = d.y_abs;
+    });
+  }
+  initPositions();
+
+  // Apply persisted overrides
+  function loadOverrides() {
+    try {
+      const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+      [...root.descendants(), ...govRoot.descendants(), ...agentRoot.descendants()].forEach(d => {
+        const id = nodeId(d);
+        if (stored[id]) {
+          d.currentX = stored[id].x;
+          d.currentY = stored[id].y;
+          d.pinned = true;
+        }
+      });
+    } catch (e) {
+      // ignore corrupt storage
+    }
+  }
+  loadOverrides();
+
+  function saveOverrides() {
+    const stored = {};
+    [...root.descendants(), ...govRoot.descendants(), ...agentRoot.descendants()].forEach(d => {
+      if (d.pinned) {
+        stored[nodeId(d)] = { x: d.currentX, y: d.currentY };
+      }
+    });
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+  }
+
+  // Re-render: update node transforms + redraw all edges from current positions
+  function updateAllEdges() {
+    // Main tree edges
+    g.selectAll("path.link:not(.gov-link)")
+      .attr("d", d => {
+        const sx = d.source.currentX;
+        const sy = d.source.currentY + nodeHeight(d.source);
+        const tx = d.target.currentX;
+        const ty = d.target.currentY;
+        const my = (sy + ty) / 2;
+        return `M${sx},${sy} C${sx},${my} ${tx},${my} ${tx},${ty}`;
+      });
+    // Governance + agent_loop are lone nodes (no children rendered) — no internal links to redraw
+
+    // Crosscutting dotted edges between root and side nodes
+    const sharedYNow = root.currentY + nodeHeight(root) / 2;
+    const govY = govRoot.currentY + nodeHeight(govRoot) / 2;
+    const agentY = agentRoot.currentY + nodeHeight(agentRoot) / 2;
+    g.select(".gates-edge")
+      .attr("x1", root.currentX + NODE_W / 2).attr("y1", sharedYNow)
+      .attr("x2", govRoot.currentX - NODE_W / 2).attr("y2", govY);
+    g.select(".gates-label")
+      .attr("x", (root.currentX + NODE_W / 2 + govRoot.currentX - NODE_W / 2) / 2)
+      .attr("y", (sharedYNow + govY) / 2 - 14);
+    g.select(".orchestrates-edge")
+      .attr("x1", agentRoot.currentX + NODE_W / 2).attr("y1", agentY)
+      .attr("x2", root.currentX - NODE_W / 2).attr("y2", sharedYNow);
+    g.select(".orchestrates-label")
+      .attr("x", (agentRoot.currentX + NODE_W / 2 + root.currentX - NODE_W / 2) / 2)
+      .attr("y", (agentY + sharedYNow) / 2 - 14);
+  }
+
+  function updateAllNodeTransforms() {
+    g.selectAll(".node")
+      .attr("transform", d => `translate(${d.currentX - NODE_W / 2}, ${d.currentY})`);
+  }
+
+  // Drag behavior — subtree-aware
+  let dragStartPositions = new Map();
+
+  function getSubtree(d) {
+    // Returns array of node + all its descendants (in main, gov, or agent hierarchy)
+    if (d.descendants) return d.descendants();
+    return [d];
+  }
+
+  const drag = d3.drag()
+    .filter(event => !event.button) // left click only
+    .on("start", function(event, d) {
+      // Capture starting positions for the dragged node + all its descendants
+      dragStartPositions.clear();
+      const subtree = getSubtree(d);
+      subtree.forEach(n => {
+        dragStartPositions.set(nodeId(n), { x: n.currentX, y: n.currentY });
+      });
+      d3.select(this).classed("dragging", true);
+      event.sourceEvent.stopPropagation(); // don't trigger pan
+    })
+    .on("drag", function(event, d) {
+      // Compute delta from drag start
+      const startPos = dragStartPositions.get(nodeId(d));
+      const dx = event.x - startPos.x;
+      const dy = event.y - startPos.y;
+      // Apply delta to whole subtree
+      const subtree = getSubtree(d);
+      subtree.forEach(n => {
+        const start = dragStartPositions.get(nodeId(n));
+        n.currentX = start.x + dx;
+        n.currentY = start.y + dy;
+        n.pinned = true;
+      });
+      updateAllNodeTransforms();
+      updateAllEdges();
+    })
+    .on("end", function(event, d) {
+      d3.select(this).classed("dragging", false);
+      saveOverrides();
+    });
+
+  // Apply drag to all nodes (main tree + side layer)
+  g.selectAll(".node").call(drag);
+
+  // Apply persisted positions on load
+  updateAllNodeTransforms();
+  updateAllEdges();
+
+  // "Reset layout" button — clears all overrides, restores auto-layout
+  document.getElementById("layout-reset").addEventListener("click", () => {
+    if (!confirm("Clear all manual node positions and restore auto-layout?")) return;
+    localStorage.removeItem(STORAGE_KEY);
+    [...root.descendants(), ...govRoot.descendants(), ...agentRoot.descendants()].forEach(d => {
+      d.pinned = false;
+    });
+    initPositions();
+    updateAllNodeTransforms();
+    updateAllEdges();
+  });
+
+  // ── COLLAPSE / EXPAND: toolbar + legend, persisted in localStorage ──
+  const PANEL_STATE_KEY = "outbound-mcp-tree-panel-state-v1";
+  function loadPanelState() {
+    try { return JSON.parse(localStorage.getItem(PANEL_STATE_KEY) || "{}"); } catch (e) { return {}; }
+  }
+  function savePanelState(state) {
+    localStorage.setItem(PANEL_STATE_KEY, JSON.stringify(state));
+  }
+  const panelState = loadPanelState();
+  // Default to collapsed if no preference saved (first visit)
+  function applyPanel(panelEl, key) {
+    const collapsed = panelState[key] === undefined ? true : panelState[key];
+    if (collapsed) panelEl.classList.add("collapsed");
+    else panelEl.classList.remove("collapsed");
+  }
+  const toolbarEl = document.getElementById("toolbar");
+  const legendEl = document.getElementById("legend");
+  applyPanel(toolbarEl, "toolbar");
+  applyPanel(legendEl, "legend");
+
+  document.getElementById("toolbar-header").addEventListener("click", () => {
+    toolbarEl.classList.toggle("collapsed");
+    panelState["toolbar"] = toolbarEl.classList.contains("collapsed");
+    savePanelState(panelState);
+  });
+  document.getElementById("legend-header").addEventListener("click", () => {
+    legendEl.classList.toggle("collapsed");
+    panelState["legend"] = legendEl.classList.contains("collapsed");
+    savePanelState(panelState);
+  });
+
+  // ── SEARCH: zoom in to matching nodes ──
+  const allNodes = [...root.descendants(), ...govRoot.descendants(), ...agentRoot.descendants()];
+  const allNodePositions = allNodes.map((d, i) => {
+    const isSide = govRoot.descendants().includes(d) || agentRoot.descendants().includes(d);
+    return {
+      data: d.data,
+      x: isSide ? d.x_abs : (d.x + xShift),
+      y: isSide ? (d.y_abs + nodeHeight(d) / 2) : (d.y + nodeHeight(d) / 2),
+      idx: i,
+      isSide
+    };
+  });
+
+  let searchMatches = [];
+  let searchIdx = 0;
+  const searchInput = document.getElementById("search-input");
+  const searchMeta = document.getElementById("search-meta");
+
+  function clearHighlights() {
+    g.selectAll(".node").classed("search-hit", false);
+  }
+
+  function highlightAndZoom(match) {
+    clearHighlights();
+    g.selectAll(".node")
+      .filter(function(d) { return d === match.dNode; })
+      .classed("search-hit", true);
+    const targetX = match.x;
+    const targetY = match.y;
+    const scale = 1.4;
+    const tx = window.innerWidth / 2 - targetX * scale;
+    const ty = window.innerHeight / 2 - targetY * scale;
+    svg.transition().duration(450).call(
+      zoomBehavior.transform,
+      d3.zoomIdentity.translate(tx, ty).scale(scale)
+    );
+  }
+
+  function runSearch(query) {
+    const q = (query || "").trim().toLowerCase();
+    if (!q) {
+      searchMatches = [];
+      clearHighlights();
+      searchMeta.textContent = "Type and press Enter · ↓ next · ↑ previous";
+      return;
+    }
+    searchMatches = [];
+    [
+      ...root.descendants(),
+      ...govRoot.descendants(),
+      ...agentRoot.descendants()
+    ].forEach(d => {
+      const pillarText = v => Array.isArray(v) ? v.join(" ") : (v || "");
+      const haystack = (d.data.name + " " + (d.data.desc || "") + " " +
+        pillarText(d.data.creation) + " " + pillarText(d.data.explainability) + " " +
+        pillarText(d.data.recommendation)).toLowerCase();
+      if (haystack.includes(q)) {
+        searchMatches.push({
+          dNode: d,
+          x: d.currentX,
+          y: d.currentY + nodeHeight(d) / 2
+        });
+      }
+    });
+    searchIdx = 0;
+    if (searchMatches.length === 0) {
+      clearHighlights();
+      searchMeta.textContent = `No matches for "${q}"`;
+    } else {
+      searchMeta.textContent = `Match ${searchIdx + 1} of ${searchMatches.length}`;
+      highlightAndZoom(searchMatches[searchIdx]);
+    }
+  }
+
+  function nextMatch() {
+    if (searchMatches.length === 0) return;
+    searchIdx = (searchIdx + 1) % searchMatches.length;
+    searchMeta.textContent = `Match ${searchIdx + 1} of ${searchMatches.length}`;
+    highlightAndZoom(searchMatches[searchIdx]);
+  }
+  function prevMatch() {
+    if (searchMatches.length === 0) return;
+    searchIdx = (searchIdx - 1 + searchMatches.length) % searchMatches.length;
+    searchMeta.textContent = `Match ${searchIdx + 1} of ${searchMatches.length}`;
+    highlightAndZoom(searchMatches[searchIdx]);
+  }
+
+  searchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      if (searchMatches.length > 0 && searchInput.value.trim().toLowerCase() === searchInput.dataset.lastQuery) {
+        nextMatch();
+      } else {
+        runSearch(searchInput.value);
+        searchInput.dataset.lastQuery = searchInput.value.trim().toLowerCase();
+      }
+      e.preventDefault();
+    } else if (e.key === "Escape") {
+      searchInput.value = "";
+      runSearch("");
+      searchInput.dataset.lastQuery = "";
+    }
+  });
+  searchInput.addEventListener("input", () => {
+    if (searchInput.value.trim().toLowerCase() !== searchInput.dataset.lastQuery) {
+      // Clear highlights when user types a new query (not yet submitted)
+    }
+  });
+  document.getElementById("search-next").addEventListener("click", nextMatch);
+  document.getElementById("search-prev").addEventListener("click", prevMatch);
+
+  // Cmd+F / Ctrl+F: focus our custom search input instead of browser's (best-effort; some browsers can't be overridden)
+  document.addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "f") {
+      e.preventDefault();
+      searchInput.focus();
+      searchInput.select();
+    }
+  });
+
+  setTimeout(fitAll, 100);
+
+  function resize() { svg.attr("width", window.innerWidth).attr("height", window.innerHeight); }
+  window.addEventListener("resize", resize);
+  resize();
+</script>
+</body>
+</html>
