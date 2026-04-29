@@ -230,6 +230,63 @@
   }
   .node.field rect { stroke-dasharray: 4 3; }
   .node.placeholder rect { stroke-dasharray: 6 4; opacity: 0.85; }
+  /* Click-to-expand */
+  .node.collapsible { cursor: pointer; }
+  .node .expand-indicator {
+    font-family: -apple-system, "Segoe UI", "Inter", sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    fill: #475569;
+    pointer-events: none;
+    user-select: none;
+  }
+  .node .expand-indicator-bg {
+    fill: #ffffff;
+    stroke: #cbd5e1;
+    stroke-width: 1px;
+    pointer-events: none;
+  }
+  .node.hidden-by-collapse, .link.hidden-by-collapse { display: none; }
+  /* Crosscutting layer stubs (collapsed-state affordance for gov + agent_loop) */
+  .layer-stub { cursor: pointer; }
+  .layer-stub rect {
+    rx: 14px; ry: 14px;
+    stroke-width: 1.5px;
+    transition: opacity 0.15s;
+  }
+  .layer-stub:hover rect { opacity: 0.85; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.12)); }
+  .layer-stub text {
+    font-family: -apple-system, "Segoe UI", "Inter", sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    pointer-events: none;
+    user-select: none;
+    dominant-baseline: central;
+    text-anchor: middle;
+  }
+  .layer-stub.gov rect { fill: #fef2f2; stroke: #b91c1c; }
+  .layer-stub.gov text { fill: #b91c1c; }
+  .layer-stub.agent rect { fill: #eef2ff; stroke: #4338ca; }
+  .layer-stub.agent text { fill: #4338ca; }
+  .layer-stub.access rect { fill: #f0f9ff; stroke: #0369a1; }
+  .layer-stub.access text { fill: #0369a1; }
+  .hidden-layer { display: none; }
+  /* When side node (gov / agent_loop) is expanded, signal it's clickable to hide */
+  .gov-node { cursor: pointer; }
+  .gov-node .layer-close-hint {
+    font-family: -apple-system, "Segoe UI", "Inter", sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    fill: #64748b;
+    pointer-events: none;
+    user-select: none;
+  }
+  .gov-node .layer-close-bg {
+    fill: #ffffff;
+    stroke: #cbd5e1;
+    stroke-width: 1px;
+    pointer-events: none;
+  }
 </style>
 </head>
 <body>
@@ -595,6 +652,16 @@
     ["Stuck loops (same tool + same args repeated)", "Tool-budget overruns", "Low-confidence plans → ask the user", "Reflector mines completed loops for planner improvements"]
   );
 
+  // Access methods — single adjacent node ABOVE ROOT. Two surfaces, same tool catalog.
+  const accessMethodsData = tool(
+    "access_methods",
+    "ACCESS LAYER — Every tool below is reachable through two surfaces: (1) Sprinklr UI (existing CM / Supervisor / ICMS screens), and (2) any MCP-capable LLM client (Claude Desktop, internal agents, custom orchestrators). Same tool catalog, same governance, two front doors.",
+    "access",
+    ["UI surface — shipped today via Sprinklr's existing screens", "MCP surface — each tool exposed as an MCP method, callable from Claude Desktop / programmatic clients"],
+    "Per call, narrate which surface initiated the action (UI vs MCP), the persona, and the auth context",
+    "Surface-equivalence: any new tool ships an MCP method + UI affordance simultaneously to avoid drift between the two front doors"
+  );
+
   const colors = {
     root:        { fill: "#0A2540", stroke: "#0A2540", textName: "#ffffff",  textDesc: "#94c4f5",  textPillar: "#cbd5e1" },
     main:        { fill: "#dbeafe", stroke: "#1976d2", textName: "#0A2540",  textDesc: "#1976d2",  textPillar: "#475569" },
@@ -605,7 +672,8 @@
     placeholder: { fill: "#ffffff", stroke: "#94a3b8", textName: "#64748b",  textDesc: "#94a3b8",  textPillar: "" },
     peer:        { fill: "#fff7ed", stroke: "#ea580c", textName: "#7c2d12",  textDesc: "#c2410c",  textPillar: "#9a3412" },
     governance:  { fill: "#fee2e2", stroke: "#b91c1c", textName: "#7f1d1d",  textDesc: "#b91c1c",  textPillar: "#7f1d1d" },
-    agent:       { fill: "#e0e7ff", stroke: "#4338ca", textName: "#312e81",  textDesc: "#4338ca",  textPillar: "#312e81" }
+    agent:       { fill: "#e0e7ff", stroke: "#4338ca", textName: "#312e81",  textDesc: "#4338ca",  textPillar: "#312e81" },
+    access:      { fill: "#f0f9ff", stroke: "#0369a1", textName: "#0c4a6e",  textDesc: "#0369a1",  textPillar: "#0c4a6e" }
   };
 
   const NODE_W = 340;
@@ -618,6 +686,7 @@
     const t = d.data.type;
     if (t === "action" || t === "field" || t === "placeholder" || t === "root") return NODE_H_SHORT;
     if (t === "agent") return 420; // agent_loop: persona chips + long-form description + bulleted pillars
+    if (t === "access") return 320; // access_methods: persona chips + description + bulleted creation pillar + 1-liner pillars
     return NODE_H_TOOL;
   }
 
@@ -656,6 +725,7 @@
   applyPersonas(data, personaMap);
   applyPersonas(governanceData, { "safety_authorization": ["ICMS"] });
   applyPersonas(agentLoopData, { "agent_loop": ["CM", "Sup", "ICMS"] });
+  applyPersonas(accessMethodsData, { "access_methods": ["CM", "Sup", "ICMS"] });
 
   const root = d3.hierarchy(data);
 
@@ -766,7 +836,8 @@
 
   // ── GOVERNANCE — single node sideways to ROOT (right side), no internal sub-tools (those live in the companion document). Connected to ROOT via dotted "gates" edge. ──
   const govRoot = d3.hierarchy(governanceData);
-  const SIDE_OFFSET_FROM_ROOT = 600; // wide breathing room — clear dotted line + label space
+  const SIDE_OFFSET_FROM_ROOT = 120; // gap between root edge and side-layer edge — tight enough that the panel reads as adjacent to root, wide enough for the dotted-edge label
+  const TOP_OFFSET_FROM_ROOT = 100; // vertical gap between root top edge and access-methods bottom edge
 
   const rootMainX = root.x + xShift;
   govRoot.x_abs = rootMainX + NODE_W + SIDE_OFFSET_FROM_ROOT + NODE_W / 2;
@@ -776,6 +847,11 @@
   const agentRoot = d3.hierarchy(agentLoopData);
   agentRoot.x_abs = rootMainX - SIDE_OFFSET_FROM_ROOT - NODE_W / 2;
   agentRoot.y_abs = root.y; // same y as ROOT — sideways alignment
+
+  // ── ACCESS METHODS — single node ABOVE ROOT, connected via dotted "available via" edge. ──
+  const accessRoot = d3.hierarchy(accessMethodsData);
+  accessRoot.x_abs = rootMainX; // same x as ROOT — vertically aligned
+  accessRoot.y_abs = root.y - TOP_OFFSET_FROM_ROOT - nodeHeight({ data: accessMethodsData });
 
   // Governance internal links — fan UP from safety_authorization (top center) to each sub-tool (bottom center)
   g.selectAll(".gov-link")
@@ -792,7 +868,7 @@
     });
 
   // Governance + agent_loop nodes (both rendered together as side-layer nodes)
-  const sideLayerNodes = [...govRoot.descendants(), ...agentRoot.descendants()];
+  const sideLayerNodes = [...govRoot.descendants(), ...agentRoot.descendants(), ...accessRoot.descendants()];
   const govNode = g.selectAll(".gov-node")
     .data(sideLayerNodes)
     .join("g")
@@ -885,7 +961,7 @@
     .attr("font-size", "13px").attr("font-style", "italic").attr("font-weight", "700")
     .attr("opacity", 0.92).attr("text-anchor", "middle")
     .attr("x", (govLineSx + govLineTx) / 2).attr("y", sharedY - 14)
-    .text("gates every main tool below");
+    .text("gates");
 
   // LEFT edge: agent_loop → ROOT (orchestrates)
   const agentLineSx = agentRoot.x_abs + NODE_W / 2;
@@ -904,8 +980,144 @@
     .attr("font-size", "13px").attr("font-style", "italic").attr("font-weight", "700")
     .attr("opacity", 0.92).attr("text-anchor", "middle")
     .attr("x", (agentLineSx + agentLineTx) / 2).attr("y", sharedY - 14)
-    .text("orchestrates every main tool below");
+    .text("orchestrates");
 
+  // TOP edge: access_methods → ROOT (available via). Vertical dotted line, shared X with root.
+  const accessLineSx = rootMainX;
+  const accessLineSy = accessRoot.y_abs + nodeHeight(accessRoot); // bottom of access node
+  const accessLineTy = root.y; // top of root
+  g.append("line")
+    .attr("class", "access-edge")
+    .attr("stroke", "#0369a1")
+    .attr("stroke-width", 2)
+    .attr("stroke-dasharray", "10 7")
+    .attr("opacity", 0.75)
+    .attr("x1", accessLineSx).attr("y1", accessLineSy)
+    .attr("x2", accessLineSx).attr("y2", accessLineTy);
+  g.append("text")
+    .attr("class", "access-label")
+    .attr("fill", "#0369a1")
+    .attr("font-size", "13px").attr("font-style", "italic").attr("font-weight", "700")
+    .attr("opacity", 0.92).attr("text-anchor", "middle")
+    .attr("x", accessLineSx + 90).attr("y", (accessLineSy + accessLineTy) / 2 + 4)
+    .text("available via");
+
+  // ── CROSSCUTTING LAYER STUBS (collapsed-state affordance for gov + agent_loop) ──
+  // When a layer is hidden, its full node + dotted edge + label are display:none, and
+  // a small "+ Governance" / "+ Agent Loop" pill sits next to root as the affordance.
+  // Click pill → reveal full layer. Click full layer's "−" indicator → hide back to pill.
+  const STUB_W = 130, STUB_H = 30, STUB_GAP = 22;
+
+  // Governance stub (right of root)
+  const govStub = g.append("g").attr("class", "layer-stub gov");
+  govStub.append("rect").attr("width", STUB_W).attr("height", STUB_H);
+  govStub.append("text").attr("x", STUB_W / 2).attr("y", STUB_H / 2).text("+ Governance");
+
+  // Agent loop stub (left of root)
+  const agentStub = g.append("g").attr("class", "layer-stub agent");
+  agentStub.append("rect").attr("width", STUB_W).attr("height", STUB_H);
+  agentStub.append("text").attr("x", STUB_W / 2).attr("y", STUB_H / 2).text("+ Agent Loop");
+
+  // Access methods stub (above root)
+  const accessStub = g.append("g").attr("class", "layer-stub access");
+  accessStub.append("rect").attr("width", STUB_W).attr("height", STUB_H);
+  accessStub.append("text").attr("x", STUB_W / 2).attr("y", STUB_H / 2).text("+ Access Methods");
+
+  // Layer visibility state — all hidden by default
+  const layerVisible = { gov: false, agent: false, access: false };
+
+  function positionStubs() {
+    // Place gov + agent stubs flanking root, vertically centered with root
+    const rootCx = root.currentX;
+    const rootCy = root.currentY + nodeHeight(root) / 2;
+    const govStubX = rootCx + NODE_W / 2 + STUB_GAP;
+    const agentStubX = rootCx - NODE_W / 2 - STUB_GAP - STUB_W;
+    const stubY = rootCy - STUB_H / 2;
+    govStub.attr("transform", `translate(${govStubX}, ${stubY})`);
+    agentStub.attr("transform", `translate(${agentStubX}, ${stubY})`);
+    // Access stub sits above root, horizontally centered
+    const accessStubX = rootCx - STUB_W / 2;
+    const accessStubY = root.currentY - STUB_GAP - STUB_H;
+    accessStub.attr("transform", `translate(${accessStubX}, ${accessStubY})`);
+  }
+
+  function applyLayerVisibility() {
+    // Governance: gov node + gates-edge + gates-label
+    g.selectAll(".gov-node").filter(d => d === govRoot).classed("hidden-layer", !layerVisible.gov);
+    g.select(".gates-edge").classed("hidden-layer", !layerVisible.gov);
+    g.select(".gates-label").classed("hidden-layer", !layerVisible.gov);
+    govStub.classed("hidden-layer", layerVisible.gov);
+
+    // Agent: agent node + orchestrates-edge + orchestrates-label
+    g.selectAll(".gov-node").filter(d => d === agentRoot).classed("hidden-layer", !layerVisible.agent);
+    g.select(".orchestrates-edge").classed("hidden-layer", !layerVisible.agent);
+    g.select(".orchestrates-label").classed("hidden-layer", !layerVisible.agent);
+    agentStub.classed("hidden-layer", layerVisible.agent);
+
+    // Access: access node + access-edge + access-label
+    g.selectAll(".gov-node").filter(d => d === accessRoot).classed("hidden-layer", !layerVisible.access);
+    g.select(".access-edge").classed("hidden-layer", !layerVisible.access);
+    g.select(".access-label").classed("hidden-layer", !layerVisible.access);
+    accessStub.classed("hidden-layer", layerVisible.access);
+  }
+
+  govStub.on("click", (event) => {
+    event.stopPropagation();
+    layerVisible.gov = true;
+    applyLayerVisibility();
+  });
+  agentStub.on("click", (event) => {
+    event.stopPropagation();
+    layerVisible.agent = true;
+    applyLayerVisibility();
+  });
+  accessStub.on("click", (event) => {
+    event.stopPropagation();
+    layerVisible.access = true;
+    applyLayerVisibility();
+  });
+
+  // Add a × close hint to the top-right of each side node (for hide-back-to-stub UX)
+  g.selectAll(".gov-node").each(function(d) {
+    const sel = d3.select(this);
+    const closeG = sel.append("g")
+      .attr("class", "layer-close-group")
+      .attr("transform", `translate(${NODE_W - 18}, 12)`);
+    closeG.append("circle")
+      .attr("class", "layer-close-bg")
+      .attr("r", 9).attr("cx", 0).attr("cy", 0);
+    closeG.append("text")
+      .attr("class", "layer-close-hint")
+      .attr("text-anchor", "middle")
+      .attr("dominant-baseline", "central")
+      .attr("x", 0).attr("y", 1)
+      .text("×");
+  });
+
+  // Hook the side-node click to hide the layer back to a stub
+  g.selectAll(".gov-node").filter(d => d === govRoot)
+    .on("click", function(event, d) {
+      if (dragMoved) return;
+      event.stopPropagation();
+      layerVisible.gov = false;
+      applyLayerVisibility();
+    });
+  g.selectAll(".gov-node").filter(d => d === agentRoot)
+    .on("click", function(event, d) {
+      if (dragMoved) return;
+      event.stopPropagation();
+      layerVisible.agent = false;
+      applyLayerVisibility();
+    });
+  g.selectAll(".gov-node").filter(d => d === accessRoot)
+    .on("click", function(event, d) {
+      if (dragMoved) return;
+      event.stopPropagation();
+      layerVisible.access = false;
+      applyLayerVisibility();
+    });
+
+  applyLayerVisibility();
   // Pan + zoom
   const zoomBehavior = d3.zoom()
     .scaleExtent([0.05, 3])
@@ -964,6 +1176,10 @@
       d.currentX = d.x_abs;
       d.currentY = d.y_abs;
     });
+    accessRoot.descendants().forEach(d => {
+      d.currentX = d.x_abs;
+      d.currentY = d.y_abs;
+    });
   }
   initPositions();
 
@@ -971,7 +1187,7 @@
   function loadOverrides() {
     try {
       const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
-      [...root.descendants(), ...govRoot.descendants(), ...agentRoot.descendants()].forEach(d => {
+      [...root.descendants(), ...govRoot.descendants(), ...agentRoot.descendants(), ...accessRoot.descendants()].forEach(d => {
         const id = nodeId(d);
         if (stored[id]) {
           d.currentX = stored[id].x;
@@ -987,7 +1203,7 @@
 
   function saveOverrides() {
     const stored = {};
-    [...root.descendants(), ...govRoot.descendants(), ...agentRoot.descendants()].forEach(d => {
+    [...root.descendants(), ...govRoot.descendants(), ...agentRoot.descendants(), ...accessRoot.descendants()].forEach(d => {
       if (d.pinned) {
         stored[nodeId(d)] = { x: d.currentX, y: d.currentY };
       }
@@ -1025,6 +1241,17 @@
     g.select(".orchestrates-label")
       .attr("x", (agentRoot.currentX + NODE_W / 2 + root.currentX - NODE_W / 2) / 2)
       .attr("y", (agentY + sharedYNow) / 2 - 14);
+    // Access (top) — vertical dotted edge from access bottom to root top, sharing root's x
+    const accessLineSyNow = accessRoot.currentY + nodeHeight(accessRoot);
+    const accessLineTyNow = root.currentY;
+    g.select(".access-edge")
+      .attr("x1", root.currentX).attr("y1", accessLineSyNow)
+      .attr("x2", root.currentX).attr("y2", accessLineTyNow);
+    g.select(".access-label")
+      .attr("x", root.currentX + 90)
+      .attr("y", (accessLineSyNow + accessLineTyNow) / 2 + 4);
+    // Layer stubs follow root
+    if (typeof positionStubs === "function") positionStubs();
   }
 
   function updateAllNodeTransforms() {
@@ -1041,9 +1268,13 @@
     return [d];
   }
 
+  // Track movement during drag so we can distinguish click vs drag
+  let dragMoved = false;
+
   const drag = d3.drag()
     .filter(event => !event.button) // left click only
     .on("start", function(event, d) {
+      dragMoved = false;
       // Capture starting positions for the dragged node + all its descendants
       dragStartPositions.clear();
       const subtree = getSubtree(d);
@@ -1058,6 +1289,7 @@
       const startPos = dragStartPositions.get(nodeId(d));
       const dx = event.x - startPos.x;
       const dy = event.y - startPos.y;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragMoved = true;
       // Apply delta to whole subtree
       const subtree = getSubtree(d);
       subtree.forEach(n => {
@@ -1071,11 +1303,163 @@
     })
     .on("end", function(event, d) {
       d3.select(this).classed("dragging", false);
-      saveOverrides();
+      if (dragMoved) saveOverrides();
     });
 
   // Apply drag to all nodes (main tree + side layer)
   g.selectAll(".node").call(drag);
+
+  // ── COLLAPSE / EXPAND on node click (main tree, with reflow) ──
+  // Collapse model: hide subtree by stashing children in _children. Re-run d3.tree
+  // on the live hierarchy each toggle so visible nodes pack tight.
+
+  // Initial collapse: everything below root is collapsed (root expanded, level-1 visible
+  // but their own subtrees collapsed). Same for gov + agent side roots (they have no
+  // visible children today, so collapsing them is a no-op for positions, but we still
+  // mark indicators).
+  function collapseInitial(node) {
+    if (node.depth >= 1 && node.children) {
+      node._children = node.children;
+      node.children = null;
+    } else if (node.children) {
+      node.children.forEach(collapseInitial);
+    }
+  }
+  collapseInitial(root);
+
+  // Mark collapsible nodes (those with children OR _children, in any hierarchy)
+  function isCollapsible(d) {
+    return (d.children && d.children.length > 0) || (d._children && d._children.length > 0);
+  }
+
+  // Render +/− indicator on every collapsible node (main tree + side roots)
+  const collapsibleSelection = g.selectAll(".node")
+    .filter(d => isCollapsible(d));
+
+  collapsibleSelection.classed("collapsible", true);
+
+  const indicatorGroup = collapsibleSelection
+    .append("g")
+    .attr("class", "expand-indicator-group")
+    .attr("transform", `translate(${NODE_W - 18}, 12)`);
+
+  indicatorGroup.append("circle")
+    .attr("class", "expand-indicator-bg")
+    .attr("r", 9)
+    .attr("cx", 0)
+    .attr("cy", 0);
+
+  indicatorGroup.append("text")
+    .attr("class", "expand-indicator")
+    .attr("text-anchor", "middle")
+    .attr("dominant-baseline", "central")
+    .attr("x", 0)
+    .attr("y", 1);
+
+  function updateIndicators() {
+    g.selectAll(".expand-indicator")
+      .text(d => (d._children && d._children.length > 0) ? "+" : "−");
+  }
+
+  // Recompute layout for the live (non-collapsed) main-tree hierarchy and animate.
+  // User-pinned positions (drag overrides) are preserved.
+  function reflowAndAnimate(animate = true) {
+    // Re-run tree layout on root (only visible children participate)
+    treeLayout(root);
+
+    // Recentre horizontally
+    let xMin2 = Infinity, xMax2 = -Infinity;
+    root.each(d => {
+      if (d.x < xMin2) xMin2 = d.x;
+      if (d.x > xMax2) xMax2 = d.x;
+    });
+    const xShift2 = -(xMin2 + xMax2) / 2;
+
+    root.descendants().forEach(d => {
+      if (!d.pinned) {
+        d.currentX = d.x + xShift2;
+        d.currentY = d.y;
+      }
+    });
+
+    // Reposition gov + agent + access side roots relative to the (possibly moved) main root
+    if (!govRoot.pinned) {
+      govRoot.currentX = root.currentX + NODE_W + SIDE_OFFSET_FROM_ROOT + NODE_W / 2;
+      govRoot.currentY = root.currentY;
+    }
+    if (!agentRoot.pinned) {
+      agentRoot.currentX = root.currentX - SIDE_OFFSET_FROM_ROOT - NODE_W / 2;
+      agentRoot.currentY = root.currentY;
+    }
+    if (!accessRoot.pinned) {
+      accessRoot.currentX = root.currentX;
+      accessRoot.currentY = root.currentY - TOP_OFFSET_FROM_ROOT - nodeHeight(accessRoot);
+    }
+
+    // Hide hidden subtree nodes; show visible ones
+    const visibleMain = new Set(root.descendants().map(nodeId));
+    g.selectAll(".node")
+      .filter(d => !d.x_abs)
+      .classed("hidden-by-collapse", d => !visibleMain.has(nodeId(d)));
+    g.selectAll("path.link:not(.gov-link)")
+      .classed("hidden-by-collapse", d => !visibleMain.has(nodeId(d.target)) || !visibleMain.has(nodeId(d.source)));
+
+    if (animate) {
+      g.selectAll(".node")
+        .transition().duration(380).ease(d3.easeCubicInOut)
+        .attr("transform", d => `translate(${d.currentX - NODE_W / 2}, ${d.currentY})`);
+      g.selectAll("path.link:not(.gov-link)")
+        .transition().duration(380).ease(d3.easeCubicInOut)
+        .attr("d", d => {
+          const sx = d.source.currentX;
+          const sy = d.source.currentY + nodeHeight(d.source);
+          const tx = d.target.currentX;
+          const ty = d.target.currentY;
+          const my = (sy + ty) / 2;
+          return `M${sx},${sy} C${sx},${my} ${tx},${my} ${tx},${ty}`;
+        });
+      // Gov/agent edges + labels redrawn via updateAllEdges (they read currentX/Y)
+      setTimeout(updateAllEdges, 0);
+    } else {
+      updateAllNodeTransforms();
+      updateAllEdges();
+    }
+  }
+
+  // Click toggles collapse (only fires if not a drag)
+  // Accordion behavior: when a level-1 (top-level) sub-tool is expanded, collapse other expanded level-1 siblings.
+  g.selectAll(".node")
+    .filter(d => isCollapsible(d) && !d.x_abs)
+    .on("click", function(event, d) {
+      if (dragMoved) return;
+      event.stopPropagation();
+      const isExpanding = !!d._children; // about to expand (children stashed in _children)
+
+      // Accordion: only at the level-1 ring (children of root)
+      if (isExpanding && d.depth === 1 && d.parent && d.parent.children) {
+        d.parent.children.forEach(sibling => {
+          if (sibling !== d && sibling.children) {
+            sibling._children = sibling.children;
+            sibling.children = null;
+          }
+        });
+      }
+
+      // Toggle this node
+      if (d.children) {
+        d._children = d.children;
+        d.children = null;
+      } else {
+        d.children = d._children;
+        d._children = null;
+      }
+      reflowAndAnimate(true);
+      updateIndicators();
+    });
+
+  // Apply initial reflow + indicators
+  reflowAndAnimate(false);
+  updateIndicators();
 
   // Apply persisted positions on load
   updateAllNodeTransforms();
@@ -1085,7 +1469,7 @@
   document.getElementById("layout-reset").addEventListener("click", () => {
     if (!confirm("Clear all manual node positions and restore auto-layout?")) return;
     localStorage.removeItem(STORAGE_KEY);
-    [...root.descendants(), ...govRoot.descendants(), ...agentRoot.descendants()].forEach(d => {
+    [...root.descendants(), ...govRoot.descendants(), ...agentRoot.descendants(), ...accessRoot.descendants()].forEach(d => {
       d.pinned = false;
     });
     initPositions();
@@ -1125,7 +1509,7 @@
   });
 
   // ── SEARCH: zoom in to matching nodes ──
-  const allNodes = [...root.descendants(), ...govRoot.descendants(), ...agentRoot.descendants()];
+  const allNodes = [...root.descendants(), ...govRoot.descendants(), ...agentRoot.descendants(), ...accessRoot.descendants()];
   const allNodePositions = allNodes.map((d, i) => {
     const isSide = govRoot.descendants().includes(d) || agentRoot.descendants().includes(d);
     return {
@@ -1243,7 +1627,38 @@
     }
   });
 
-  setTimeout(fitAll, 100);
+  // Initial zoom: focus on the visible main tree (root + currently-expanded descendants)
+  // so the user lands on "Sprinklr Outbound CCaaS" clearly readable, not zoomed out to fit
+  // the wide gov/agent side panels.
+  function fitInitial() {
+    const visible = root.descendants();
+    if (!visible.length) { fitAll(); return; }
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    visible.forEach(d => {
+      const left = d.currentX - NODE_W / 2;
+      const right = d.currentX + NODE_W / 2;
+      const top = d.currentY;
+      const bottom = d.currentY + nodeHeight(d);
+      if (left < minX) minX = left;
+      if (right > maxX) maxX = right;
+      if (top < minY) minY = top;
+      if (bottom > maxY) maxY = bottom;
+    });
+    const padding = 100;
+    const w = maxX - minX, h = maxY - minY;
+    const scale = Math.min(
+      (window.innerWidth - padding * 2) / w,
+      (window.innerHeight - padding * 2) / h,
+      1.1   // cap so root doesn't render absurdly large on a big screen
+    );
+    const tx = window.innerWidth / 2 - (minX + w / 2) * scale;
+    const ty = padding - minY * scale;
+    svg.transition().duration(400).call(
+      zoomBehavior.transform,
+      d3.zoomIdentity.translate(tx, ty).scale(scale)
+    );
+  }
+  setTimeout(fitInitial, 100);
 
   function resize() { svg.attr("width", window.innerWidth).attr("height", window.innerHeight); }
   window.addEventListener("resize", resize);
